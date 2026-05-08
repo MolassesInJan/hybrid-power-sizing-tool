@@ -2,6 +2,7 @@ import math
 import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from config import PARAMS
 
 HOURS = 72
 DT_MIN = 10
@@ -236,25 +237,61 @@ p, li, .stMarkdown {
 """, unsafe_allow_html=True)
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
+
+def _init_param(slug, lo, hi, default, step):
+    """Seed session_state from config defaults if page 2 hasn't set values yet."""
+    is_float = isinstance(step, float)
+    cast = float if is_float else int
+    if f"ref_{slug}_min" not in st.session_state:
+        st.session_state[f"ref_{slug}_min"] = cast(lo)
+    if f"ref_{slug}_max" not in st.session_state:
+        st.session_state[f"ref_{slug}_max"] = cast(hi)
+    if f"ref_{slug}_val" not in st.session_state:
+        st.session_state[f"ref_{slug}_val"] = cast(default)
+    # clamp stored value if bounds changed on page 2
+    lo_now = st.session_state[f"ref_{slug}_min"]
+    hi_now = st.session_state[f"ref_{slug}_max"]
+    st.session_state[f"ref_{slug}_val"] = cast(
+        max(lo_now, min(hi_now, st.session_state[f"ref_{slug}_val"]))
+    )
+
+def _param_slider(label_p1, slug, lo, hi, default, step):
+    _init_param(slug, lo, hi, default, step)
+    lo_now = st.session_state[f"ref_{slug}_min"]
+    hi_now = st.session_state[f"ref_{slug}_max"]
+    return st.slider(label_p1,
+                     min_value=lo_now, max_value=hi_now,
+                     step=step, key=f"ref_{slug}_val")
+
+# build lookup and seed session_state on every load
+_P = {p[0]: p for p in PARAMS}
+
+def _ps(slug):
+    slug, label_p1, _, lo, hi, default, step, unit, _ = _P[slug]
+    return _param_slider(label_p1, slug, lo, hi, default, step)
+
+for p in PARAMS:
+    _init_param(p[0], p[3], p[4], p[5], p[6])
+
 with st.sidebar:
     st.title("Configure your system")
 
     st.subheader("Your loads")
-    starlink_w = st.slider("Satellite internet (W)",    20,   75,  35)
-    laptop_w   = st.slider("Laptop — work hours (W)",   30,  150,  75)
-    monitor_w  = st.slider("Monitor — work hours (W)",  10,  100,  35)
-    ac_w       = st.slider("Air conditioner (W)",      400, 1000, 675, step=25)
+    starlink_w  = _ps("starlink_mini_constant_load")
+    laptop_w    = _ps("laptop_workday_load")
+    monitor_w   = _ps("monitor_workday_load")
+    ac_w        = _ps("ac_compressor_load")
 
     st.subheader("Battery & renewables")
-    battery_kwh = st.slider("Battery bank size (kWh)",      1.0, 10.0, 2.5, step=0.1)
-    initial_soc = st.slider("Starting charge level (%)",     20,  100,  80)
-    solar_w     = st.slider("Solar panels (W)",             100, 1600, 400, step=25)
-    wind_w      = st.slider("Wind turbine (W)",             100, 2000, 500, step=25)
+    battery_kwh = _ps("battery_capacity")
+    initial_soc = _ps("initial_battery_soc")
+    solar_w     = _ps("solar_array_rating")
+    wind_w      = _ps("wind_turbine_rating")
 
     st.subheader("Generator")
-    gen_rated_w = st.slider("Generator size (W)",            500, 6000, 3000, step=100)
-    gen_pct     = st.slider("Output limit (%)",               25,  100,   85)
-    gen_target  = st.slider("Recharge to this level (%)",     40,   95,   75)
+    gen_rated_w = _ps("generator_rated_output")
+    gen_pct     = _ps("generator_output_cap")
+    gen_target  = _ps("generator_recharge_target")
 
     st.divider()
     fuel_cost_per_gal = st.slider("Fuel price ($/gal)", 1.00, 15.00, 4.50,

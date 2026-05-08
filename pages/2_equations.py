@@ -2,6 +2,9 @@ import math
 import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from config import PARAMS
 
 st.set_page_config(page_title="Equations & Models", layout="wide")
 st.title("Equations & Models")
@@ -24,69 +27,50 @@ def section(title):
 
 # ── Slider reference ──────────────────────────────────────────────────────────
 section("Slider reference")
-st.markdown("Each entry shows the equation symbol, description, and an interactive slider with adjustable range. Values here are independent of the simulator page.")
+st.markdown(
+    "Adjust the range and value for any parameter below. "
+    "Changes are reflected immediately on the **simulator page** — "
+    "navigate there to see the updated sliders and results."
+)
 
-# (label, latex_sym, min, max, default, step, unit, desc)
-slider_data = [
-    ("Starlink Mini constant load", "P_\\text{Starlink}",
-     20, 75, 35, 1, "W",
-     "Constant draw regardless of time of day or work status."),
-    ("Laptop workday load", "P_\\text{laptop}",
-     30, 150, 75, 1, "W",
-     "Added to load only during work hours (9 am–5 pm)."),
-    ("Monitor workday load", "P_\\text{monitor}",
-     10, 100, 35, 1, "W",
-     "Added to load only during work hours alongside the laptop."),
-    ("AC compressor load", "P_\\text{AC,rated}",
-     400, 1000, 675, 25, "W",
-     "Power draw when the thermostat calls for cooling (8,000 BTU unit)."),
-    ("Battery capacity", "E_\\text{cap}",
-     1.0, 10.0, 2.5, 0.1, "kWh",
-     "Sets capacity, minimum SOC floor (20 %), and target SOC threshold."),
-    ("Initial battery SOC", "\\text{SOC}_0",
-     20, 100, 80, 1, "%",
-     "Starting state of charge: E(0) = SOC₀/100 × E_cap."),
-    ("Solar array rating", "P_\\text{solar,rated}",
-     100, 1600, 400, 25, "W",
-     "Peak DC nameplate wattage; effective peak is ~56 % after de-rating."),
-    ("Wind turbine rating", "P_\\text{wind,rated}",
-     100, 2000, 500, 25, "W",
-     "Rated output; model scales the base wind curve proportionally."),
-    ("Generator rated output", "P_\\text{gen,rated}",
-     500, 6000, 3000, 100, "W",
-     "Nameplate wattage of the generator. P_limit = P_rated × gen_pct / 100."),
-    ("Generator output cap", "\\text{gen\\_pct}",
-     25, 100, 85, 1, "%",
-     "Percentage of rated output allowed. P_limit = P_rated × gen_pct / 100.  Also determines fuel rate step."),
-    ("Generator recharge target", "\\text{gen\\_target}",
-     40, 95, 75, 1, "%",
-     "Generator turns off once battery SOC reaches this value."),
-]
+LATEX = {
+    "starlink_mini_constant_load": "P_\\text{Starlink}",
+    "laptop_workday_load":         "P_\\text{laptop}",
+    "monitor_workday_load":        "P_\\text{monitor}",
+    "ac_compressor_load":          "P_\\text{AC,rated}",
+    "battery_capacity":            "E_\\text{cap}",
+    "initial_battery_soc":         "\\text{SOC}_0",
+    "solar_array_rating":          "P_\\text{solar,rated}",
+    "wind_turbine_rating":         "P_\\text{wind,rated}",
+    "generator_rated_output":      "P_\\text{gen,rated}",
+    "generator_output_cap":        "\\text{gen\\_pct}",
+    "generator_recharge_target":   "\\text{gen\\_target}",
+}
 
-for label, latex_sym, lo, hi, default, step, unit, desc in slider_data:
-    with st.expander(label):
+for slug, _, label_p2, lo, hi, default, step, unit, desc in PARAMS:
+    is_float = isinstance(step, float)
+    cast = float if is_float else int
+
+    with st.expander(label_p2):
         col1, col2 = st.columns([1, 2])
         with col1:
-            st.latex(latex_sym)
+            st.latex(LATEX[slug])
             st.markdown(f"**Default:** {default} {unit}")
         with col2:
             st.markdown(desc)
-
-        slug = label.lower().replace(" ", "_")
-        is_float = isinstance(step, float)
 
         rc1, rc2 = st.columns(2)
         with rc1:
             range_min = st.number_input(
                 f"Range minimum ({unit})",
-                value=float(lo) if is_float else int(lo),
+                value=cast(st.session_state.get(f"ref_{slug}_min", lo)),
                 step=step,
                 key=f"ref_{slug}_min",
             )
         with rc2:
             range_max = st.number_input(
                 f"Range maximum ({unit})",
-                value=float(hi) if is_float else int(hi),
+                value=cast(st.session_state.get(f"ref_{slug}_max", hi)),
                 step=step,
                 key=f"ref_{slug}_max",
             )
@@ -94,19 +78,22 @@ for label, latex_sym, lo, hi, default, step, unit, desc in slider_data:
         if range_min >= range_max:
             st.warning("Minimum must be less than maximum.")
         else:
-            safe_val = float(default) if is_float else int(default)
-            safe_val = max(range_min, min(range_max, safe_val))
+            # clamp stored value into current bounds
+            current = cast(st.session_state.get(f"ref_{slug}_val", default))
+            clamped = cast(max(range_min, min(range_max, current)))
+            if clamped != current:
+                st.session_state[f"ref_{slug}_val"] = clamped
             val = st.slider(
-                f"{label} ({unit})",
+                f"{label_p2} ({unit})",
                 min_value=range_min,
                 max_value=range_max,
-                value=safe_val,
                 step=step,
                 key=f"ref_{slug}_val",
             )
             st.caption(
                 f"Current: **{val} {unit}**  |  Default: {default} {unit}  |  "
-                f"Range: {range_min}–{range_max} {unit}"
+                f"Range: {range_min}–{range_max} {unit}  |  "
+                f"**Active on simulator page ✓**"
             )
 
 # ── 1. Simulation grid ────────────────────────────────────────────────────────
