@@ -15,6 +15,9 @@ env/
 # Streamlit local config
 .streamlit/
 
+# Session context — local only
+SESSION_CONTEXT.md
+
 # OS
 .DS_Store
 Thumbs.db
