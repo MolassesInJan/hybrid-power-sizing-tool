@@ -238,40 +238,33 @@ p, li, .stMarkdown {
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 
-def _init_param(slug, lo, hi, default, step):
-    """Seed session_state from config defaults if page 2 hasn't set values yet."""
+def _param_slider(label_p1, slug, lo_def, hi_def, default_def, step):
     is_float = isinstance(step, float)
     cast = float if is_float else int
-    if f"ref_{slug}_min" not in st.session_state:
-        st.session_state[f"ref_{slug}_min"] = cast(lo)
-    if f"ref_{slug}_max" not in st.session_state:
-        st.session_state[f"ref_{slug}_max"] = cast(hi)
-    if f"ref_{slug}_val" not in st.session_state:
-        st.session_state[f"ref_{slug}_val"] = cast(default)
-    # clamp stored value if bounds changed on page 2
-    lo_now = st.session_state[f"ref_{slug}_min"]
-    hi_now = st.session_state[f"ref_{slug}_max"]
-    st.session_state[f"ref_{slug}_val"] = cast(
-        max(lo_now, min(hi_now, st.session_state[f"ref_{slug}_val"]))
-    )
+    # Read bounds/value set by page 2; fall back to config defaults
+    lo      = cast(st.session_state.get(f"ref_{slug}_min", lo_def))
+    hi      = cast(st.session_state.get(f"ref_{slug}_max", hi_def))
+    default = cast(st.session_state.get(f"ref_{slug}_val", default_def))
+    # First visit: seed page-1's own key
+    if f"p1_{slug}" not in st.session_state:
+        st.session_state[f"p1_{slug}"]         = cast(max(lo, min(hi, default)))
+        st.session_state[f"p1_{slug}_default"] = default
+    # Page 2 changed the suggested value — push it to page 1
+    if st.session_state[f"p1_{slug}_default"] != default:
+        st.session_state[f"p1_{slug}"]         = cast(max(lo, min(hi, default)))
+        st.session_state[f"p1_{slug}_default"] = default
+    # Clamp page-1 value if bounds narrowed
+    current = st.session_state[f"p1_{slug}"]
+    clamped = cast(max(lo, min(hi, current)))
+    if clamped != current:
+        st.session_state[f"p1_{slug}"] = clamped
+    return st.slider(label_p1, min_value=lo, max_value=hi, step=step, key=f"p1_{slug}")
 
-def _param_slider(label_p1, slug, lo, hi, default, step):
-    _init_param(slug, lo, hi, default, step)
-    lo_now = st.session_state[f"ref_{slug}_min"]
-    hi_now = st.session_state[f"ref_{slug}_max"]
-    return st.slider(label_p1,
-                     min_value=lo_now, max_value=hi_now,
-                     step=step, key=f"ref_{slug}_val")
-
-# build lookup and seed session_state on every load
 _P = {p[0]: p for p in PARAMS}
 
 def _ps(slug):
     slug, label_p1, _, lo, hi, default, step, unit, _ = _P[slug]
     return _param_slider(label_p1, slug, lo, hi, default, step)
-
-for p in PARAMS:
-    _init_param(p[0], p[3], p[4], p[5], p[6])
 
 with st.sidebar:
     st.title("Configure your system")
