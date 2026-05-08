@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(& \"C:\\\\Users\\\\nick\\\\PycharmProjects\\\\generatorgraph\\\\.venv\\\\Scripts\\\\pip.exe\" install streamlit plotly)",
+      "PowerShell(& \"C:\\\\Users\\\\nick\\\\PycharmProjects\\\\generatorgraph\\\\.venv\\\\Scripts\\\\streamlit.exe\" run \"C:\\\\Users\\\\nick\\\\PycharmProjects\\\\generatorgraph\\\\main.py\")",
+      "PowerShell(& \"C:\\\\Users\\\\nick\\\\PycharmProjects\\\\generatorgraph\\\\.venv\\\\Scripts\\\\streamlit.exe\" run \"C:\\\\Users\\\\nick\\\\PycharmProjects\\\\generatorgraph\\\\main.py\" --browser.gatherUsageStats false 2>&1 | Select-Object -First 5)",
+      "PowerShell(Start-Process \"C:\\\\Users\\\\nick\\\\PycharmProjects\\\\generatorgraph\\\\.venv\\\\Scripts\\\\streamlit.exe\" -ArgumentList \"run\", \"C:\\\\Users\\\\nick\\\\PycharmProjects\\\\generatorgraph\\\\main.py\")",
+      "PowerShell(Get-Content *)",
+      "PowerShell(New-Item *)",
+      "PowerShell(& \"C:\\\\Users\\\\nick\\\\PycharmProjects\\\\generatorgraph\\\\.venv\\\\Scripts\\\\python.exe\" -c \"import ast, sys; ast.parse\\(open\\(r'C:\\\\Users\\\\nick\\\\PycharmProjects\\\\generatorgraph\\\\pages\\\\2_equations.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "PowerShell(Start-Process -FilePath \"C:\\\\Users\\\\nick\\\\PycharmProjects\\\\generatorgraph\\\\.venv\\\\Scripts\\\\streamlit.exe\" -ArgumentList \"run\", \"C:\\\\Users\\\\nick\\\\PycharmProjects\\\\generatorgraph\\\\main.py\")",
+      "PowerShell(& \"C:\\\\Users\\\\nick\\\\PycharmProjects\\\\generatorgraph\\\\.venv\\\\Scripts\\\\python.exe\" -c \"import ast; ast.parse\\(open\\(r'C:\\\\Users\\\\nick\\\\PycharmProjects\\\\generatorgraph\\\\pages\\\\2_equations.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "PowerShell(& \"C:\\\\Users\\\\nick\\\\PycharmProjects\\\\generatorgraph\\\\.venv\\\\Scripts\\\\python.exe\" -c \"import ast; ast.parse\\(open\\(r'C:\\\\Users\\\\nick\\\\PycharmProjects\\\\generatorgraph\\\\main.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "PowerShell(gh *)",
+      "PowerShell(winget *)"
+    ]
+  }
+}
