@@ -84,7 +84,7 @@ def fetch_weather_profile(lat, lng, year, month):
 def run_simulation(starlink_w, laptop_w, monitor_w, ac_w, battery_kwh,
                    solar_w, wind_w, generator_pct, generator_target, initial_soc,
                    generator_rated_w=3000, weather=None,
-                   ac_on_thresh=72, ac_off_thresh=68):
+                   ac_on_thresh=72, ac_off_thresh=68, extra_constant_w=0):
     battery_capacity_wh = battery_kwh * 1000
     battery_min_wh = 0.2 * battery_capacity_wh
     generator_target_wh = (generator_target / 100) * battery_capacity_wh
@@ -139,7 +139,7 @@ def run_simulation(starlink_w, laptop_w, monitor_w, ac_w, battery_kwh,
             wind_factor    = 1.0 if h < 24 else (1.25 if h < 48 else 0.75)
             wind_available = clamp(wind_raw * wind_factor * (wind_w / 500), 0, wind_w)
 
-        load_no_ac = starlink_w + (laptop_w + monitor_w if work else 10)
+        load_no_ac = starlink_w + extra_constant_w + (laptop_w + monitor_w if work else 10)
 
         base.append({
             "h": round(h, 1),
@@ -355,6 +355,11 @@ def _ps(slug):
     slug, label_p1, _, lo, hi, default, step, unit, _ = _P[slug]
     return _param_slider(label_p1, slug, lo, hi, default, step)
 
+if "custom_loads" not in st.session_state:
+    st.session_state["custom_loads"] = []
+if "custom_load_counter" not in st.session_state:
+    st.session_state["custom_load_counter"] = 0
+
 with st.sidebar:
     st.title("Configure your system")
 
@@ -382,6 +387,37 @@ with st.sidebar:
     ac_off_thresh = st.slider("Heat below (°F)",  min_value=55, max_value=80, value=68, step=1)
     ac_off_thresh = min(ac_off_thresh, ac_on_thresh - 1)
 
+    misc_load_w = st.slider("Misc load (W)", 0, 8000, 0, step=25, key="misc_load_w")
+
+    # ── Custom loads ──────────────────────────────────────────────
+    _remove_id = None
+    for _cl in st.session_state["custom_loads"]:
+        _cs, _cx = st.columns([6, 1])
+        with _cs:
+            st.slider(f"{_cl['name']} (W)", 0, 5000, 0, step=25, key=f"cl_{_cl['id']}")
+        with _cx:
+            st.write("")
+            if st.button("✕", key=f"rm_{_cl['id']}"):
+                _remove_id = _cl["id"]
+    if _remove_id is not None:
+        st.session_state["custom_loads"] = [
+            l for l in st.session_state["custom_loads"] if l["id"] != _remove_id
+        ]
+        st.rerun()
+
+    with st.expander("＋ Add a load"):
+        _new_name = st.text_input(
+            "Load name", placeholder="Refrigerator, water pump…", key="new_load_name"
+        )
+        if st.button("Add to simulation", key="add_load_btn") and _new_name.strip():
+            _uid = f"c{st.session_state['custom_load_counter']}"
+            st.session_state["custom_load_counter"] += 1
+            st.session_state["custom_loads"].append(
+                {"name": _new_name.strip(), "id": _uid}
+            )
+            del st.session_state["new_load_name"]
+            st.rerun()
+
     st.subheader("Battery & renewables")
     battery_kwh = _ps("battery_capacity")
     initial_soc = _ps("initial_battery_soc")
@@ -398,6 +434,11 @@ with st.sidebar:
                                   step=0.10, format="$%.2f")
 
 # ── Run simulation ────────────────────────────────────────────────────────────
+extra_constant_w = misc_load_w + sum(
+    st.session_state.get(f"cl_{cl['id']}", 0)
+    for cl in st.session_state["custom_loads"]
+)
+
 rows, summary, baseline_fuel_gal = run_simulation(
     starlink_w, laptop_w, monitor_w, ac_w,
     battery_kwh, solar_w, wind_w,
@@ -406,6 +447,7 @@ rows, summary, baseline_fuel_gal = run_simulation(
     weather=weather,
     ac_on_thresh=ac_on_thresh,
     ac_off_thresh=ac_off_thresh,
+    extra_constant_w=extra_constant_w,
 )
 
 fuel_saved  = round(baseline_fuel_gal - summary["Est. fuel gal"], 2)
