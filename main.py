@@ -93,7 +93,8 @@ def run_simulation(starlink_w, laptop_w, monitor_w, ac_w, battery_kwh,
     battery_wh = (initial_soc / 100) * battery_capacity_wh
     generator_on = False
     room_temp = 70.0
-    ac_on = False
+    hvac_cooling = False
+    hvac_heating = False
 
     # accumulators
     total_load_wh = ac_wh = solar_wh = wind_wh = 0.0
@@ -155,13 +156,18 @@ def run_simulation(starlink_w, laptop_w, monitor_w, ac_w, battery_kwh,
     lookahead = int(6 / DT_H)
 
     for s, b in enumerate(base):
-        # thermostat
-        if not ac_on and room_temp >= ac_on_thresh:
-            ac_on = True
-        elif ac_on and room_temp <= ac_off_thresh:
-            ac_on = False
+        # thermostat — cooling and heating with hysteresis
+        if not hvac_cooling and not hvac_heating and room_temp >= ac_on_thresh:
+            hvac_cooling = True
+        elif hvac_cooling and room_temp <= ac_off_thresh:
+            hvac_cooling = False
+        if not hvac_heating and not hvac_cooling and room_temp <= ac_off_thresh:
+            hvac_heating = True
+        elif hvac_heating and room_temp >= ac_on_thresh:
+            hvac_heating = False
 
-        ac_load = ac_w if ac_on else 0
+        hvac_on = hvac_cooling or hvac_heating
+        ac_load = ac_w if hvac_on else 0
         load = b["load_no_ac"] + ac_load
         renewable_now = b["solar"] + b["wind"]
 
@@ -169,7 +175,7 @@ def run_simulation(starlink_w, laptop_w, monitor_w, ac_w, battery_kwh,
         future_surplus_wh = 0.0
         for j in range(s, min(len(base), s + lookahead)):
             f = base[j]
-            future_load = f["load_no_ac"] + (ac_w if ac_on else 0)
+            future_load = f["load_no_ac"] + (ac_w if hvac_on else 0)
             future_surplus_wh += max(f["solar"] + f["wind"] - future_load, 0) * DT_H
         storage_room_wh = battery_capacity_wh - battery_wh
         renewable_will_need_room = future_surplus_wh > storage_room_wh
@@ -231,8 +237,9 @@ def run_simulation(starlink_w, laptop_w, monitor_w, ac_w, battery_kwh,
         passive = 0.18 * (b["outdoor_temp"] - room_temp)
         internal_gain = 1.30 if b["work"] else 0.25
         solar_heat = 0.55 if 11 <= b["tod"] < 18 else 0.05
-        cooling = 7.5 if ac_on else 0
-        room_temp += (passive + internal_gain + solar_heat - cooling) * DT_H
+        cooling = 7.5 if hvac_cooling else 0
+        heating = 7.5 if hvac_heating else 0
+        room_temp += (passive + internal_gain + solar_heat - cooling + heating) * DT_H
 
     fuel_rate = (0.47 if generator_pct >= 80
                  else 0.42 if generator_pct >= 65
@@ -371,8 +378,8 @@ with st.sidebar:
     laptop_w    = _ps("laptop_workday_load")
     monitor_w   = _ps("monitor_workday_load")
     ac_w        = _ps("ac_compressor_load")
-    ac_on_thresh  = st.slider("AC turns on above (°F)",  min_value=60, max_value=85, value=72, step=1)
-    ac_off_thresh = st.slider("AC turns off below (°F)", min_value=55, max_value=80, value=68, step=1)
+    ac_on_thresh  = st.slider("Cool above (°F)",  min_value=60, max_value=85, value=72, step=1)
+    ac_off_thresh = st.slider("Heat below (°F)",  min_value=55, max_value=80, value=68, step=1)
     ac_off_thresh = min(ac_off_thresh, ac_on_thresh - 1)
 
     st.subheader("Battery & renewables")
@@ -465,8 +472,8 @@ st.plotly_chart(fig1, width="stretch")
 # ── Temperature chart ─────────────────────────────────────────────────────────
 st.markdown("## Indoor comfort over 72 hours")
 st.caption(
-    f"The air conditioner cycles on above {ac_on_thresh} °F "
-    f"and off below {ac_off_thresh} °F. "
+    f"The HVAC unit cools above {ac_on_thresh} °F and heats below {ac_off_thresh} °F, "
+    f"maintaining the comfort band in between. "
     "Adjust thresholds under **Your loads** in the sidebar."
 )
 
@@ -477,9 +484,9 @@ fig2 = go.Figure()
 fig2.add_trace(go.Scatter(x=hours, y=room_temps,    name="Indoor temperature",  line=dict(width=2, color="#f97316")))
 fig2.add_trace(go.Scatter(x=hours, y=outdoor_temps, name="Outdoor temperature", line=dict(width=2, color="#94a3b8", dash="dash")))
 fig2.add_hline(y=ac_on_thresh,  line_dash="dot", line_color="#f97316",
-               annotation_text=f"AC on at {ac_on_thresh} °F")
+               annotation_text=f"Cooling on above {ac_on_thresh} °F")
 fig2.add_hline(y=ac_off_thresh, line_dash="dot", line_color="#38bdf8",
-               annotation_text=f"AC off at {ac_off_thresh} °F")
+               annotation_text=f"Heating on below {ac_off_thresh} °F")
 fig2.update_layout(height=None, autosize=True, hovermode="x unified",
                    yaxis=dict(title="Temperature (°F)", range=[temp_lo, temp_hi]),
                    xaxis_title="Hour of simulation",
