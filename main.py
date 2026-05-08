@@ -83,7 +83,8 @@ def fetch_weather_profile(lat, lng, year, month):
 
 def run_simulation(starlink_w, laptop_w, monitor_w, ac_w, battery_kwh,
                    solar_w, wind_w, generator_pct, generator_target, initial_soc,
-                   generator_rated_w=3000, weather=None):
+                   generator_rated_w=3000, weather=None,
+                   ac_on_thresh=72, ac_off_thresh=68):
     battery_capacity_wh = battery_kwh * 1000
     battery_min_wh = 0.2 * battery_capacity_wh
     generator_target_wh = (generator_target / 100) * battery_capacity_wh
@@ -155,9 +156,9 @@ def run_simulation(starlink_w, laptop_w, monitor_w, ac_w, battery_kwh,
 
     for s, b in enumerate(base):
         # thermostat
-        if not ac_on and room_temp >= 72:
+        if not ac_on and room_temp >= ac_on_thresh:
             ac_on = True
-        elif ac_on and room_temp <= 68:
+        elif ac_on and room_temp <= ac_off_thresh:
             ac_on = False
 
         ac_load = ac_w if ac_on else 0
@@ -370,6 +371,9 @@ with st.sidebar:
     laptop_w    = _ps("laptop_workday_load")
     monitor_w   = _ps("monitor_workday_load")
     ac_w        = _ps("ac_compressor_load")
+    ac_on_thresh  = st.slider("AC turns on above (°F)",  min_value=60, max_value=85, value=72, step=1)
+    ac_off_thresh = st.slider("AC turns off below (°F)", min_value=55, max_value=80, value=68, step=1)
+    ac_off_thresh = min(ac_off_thresh, ac_on_thresh - 1)
 
     st.subheader("Battery & renewables")
     battery_kwh = _ps("battery_capacity")
@@ -393,6 +397,8 @@ rows, summary, baseline_fuel_gal = run_simulation(
     gen_pct, gen_target, initial_soc,
     gen_rated_w,
     weather=weather,
+    ac_on_thresh=ac_on_thresh,
+    ac_off_thresh=ac_off_thresh,
 )
 
 fuel_saved  = round(baseline_fuel_gal - summary["Est. fuel gal"], 2)
@@ -458,15 +464,24 @@ st.plotly_chart(fig1, width="stretch")
 
 # ── Temperature chart ─────────────────────────────────────────────────────────
 st.markdown("## Indoor comfort over 72 hours")
-st.caption("The air conditioner cycles on and off to keep the space between 68 °F and 72 °F.")
+st.caption(
+    f"The air conditioner cycles on above {ac_on_thresh} °F "
+    f"and off below {ac_off_thresh} °F. "
+    "Adjust thresholds under **Your loads** in the sidebar."
+)
+
+temp_lo = min(min(outdoor_temps), ac_off_thresh) - 4
+temp_hi = max(max(room_temps),    ac_on_thresh)  + 4
 
 fig2 = go.Figure()
 fig2.add_trace(go.Scatter(x=hours, y=room_temps,    name="Indoor temperature",  line=dict(width=2, color="#f97316")))
 fig2.add_trace(go.Scatter(x=hours, y=outdoor_temps, name="Outdoor temperature", line=dict(width=2, color="#94a3b8", dash="dash")))
-fig2.add_hline(y=72, line_dash="dot", line_color="#f97316", annotation_text="AC turns on at 72°F")
-fig2.add_hline(y=68, line_dash="dot", line_color="#38bdf8", annotation_text="AC turns off at 68°F")
+fig2.add_hline(y=ac_on_thresh,  line_dash="dot", line_color="#f97316",
+               annotation_text=f"AC on at {ac_on_thresh} °F")
+fig2.add_hline(y=ac_off_thresh, line_dash="dot", line_color="#38bdf8",
+               annotation_text=f"AC off at {ac_off_thresh} °F")
 fig2.update_layout(height=None, autosize=True, hovermode="x unified",
-                   yaxis=dict(title="Temperature (°F)", range=[58, 86]),
+                   yaxis=dict(title="Temperature (°F)", range=[temp_lo, temp_hi]),
                    xaxis_title="Hour of simulation",
                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0))
 st.plotly_chart(fig2, width="stretch")
