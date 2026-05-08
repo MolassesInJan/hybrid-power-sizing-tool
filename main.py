@@ -1,4 +1,9 @@
 import math
+import json
+import calendar
+import urllib.request
+import urllib.parse
+from datetime import date
 import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -14,9 +19,71 @@ def clamp(v, lo, hi):
     return max(lo, min(hi, v))
 
 
+@st.cache_data(show_spinner=False)
+def geocode_address(address):
+    try:
+        q = urllib.parse.quote_plus(address.strip())
+        url = f"https://nominatim.openstreetmap.org/search?q={q}&format=json&limit=1"
+        req = urllib.request.Request(url, headers={"User-Agent": "HybridPowerSizingTool/1.0"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            results = json.loads(resp.read())
+        if results:
+            return float(results[0]["lat"]), float(results[0]["lon"]), results[0]["display_name"]
+    except Exception:
+        pass
+    return 43.8014, -91.2396, "La Crosse, WI"
+
+
+@st.cache_data(show_spinner=False)
+def fetch_weather_profile(lat, lng, year, month):
+    _, last_day = calendar.monthrange(year, month)
+    start = f"{year}-{month:02d}-01"
+    end   = f"{year}-{month:02d}-{last_day:02d}"
+    url = (
+        "https://archive-api.open-meteo.com/v1/archive"
+        f"?latitude={lat:.4f}&longitude={lng:.4f}"
+        f"&start_date={start}&end_date={end}"
+        "&hourly=shortwave_radiation,windspeed_10m,temperature_2m"
+        "&wind_speed_unit=ms&timezone=auto"
+    )
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "HybridPowerSizingTool/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+        h = data["hourly"]
+        n = len(h["time"])
+        solar_by_hod = [[] for _ in range(24)]
+        wind_by_hod  = [[] for _ in range(24)]
+        temp_by_hod  = [[] for _ in range(24)]
+        for i in range(n):
+            hod = i % 24
+            solar_by_hod[hod].append(h["shortwave_radiation"][i] or 0.0)
+            wind_by_hod[hod].append( h["windspeed_10m"][i]       or 0.0)
+            temp_by_hod[hod].append( h["temperature_2m"][i]      or 0.0)
+        avg_solar = [sum(v) / len(v) for v in solar_by_hod]
+        avg_wind  = [sum(v) / len(v) for v in wind_by_hod]
+        avg_temp  = [sum(v) / len(v) for v in temp_by_hod]
+        # 72-hour representative profile: repeat the daily average 3×
+        solar_73 = avg_solar * 3 + [avg_solar[0]]
+        wind_73  = avg_wind  * 3 + [avg_wind[0]]
+        temp_73  = avg_temp  * 3 + [avg_temp[0]]
+        # Interpolate hourly → 10-minute (STEPS + 1 = 433 points)
+        def _interp(vals):
+            out = []
+            for s in range(STEPS + 1):
+                hf = s * DT_H
+                i  = int(hf)
+                fr = hf - i
+                out.append(vals[i] * (1 - fr) + vals[min(i + 1, len(vals) - 1)] * fr)
+            return out
+        return {"solar": _interp(solar_73), "wind": _interp(wind_73), "temp": _interp(temp_73)}
+    except Exception:
+        return None
+
+
 def run_simulation(starlink_w, laptop_w, monitor_w, ac_w, battery_kwh,
                    solar_w, wind_w, generator_pct, generator_target, initial_soc,
-                   generator_rated_w=3000):
+                   generator_rated_w=3000, weather=None):
     battery_capacity_wh = battery_kwh * 1000
     battery_min_wh = 0.2 * battery_capacity_wh
     generator_target_wh = (generator_target / 100) * battery_capacity_wh
@@ -40,26 +107,35 @@ def run_simulation(starlink_w, laptop_w, monitor_w, ac_w, battery_kwh,
     for s in range(STEPS + 1):
         h = s * DT_H
         tod = h % 24
-        day_offset = 0 if h < 24 else (2 if h < 48 else -1)
-        outdoor_temp = 71 + 11 * math.sin(2 * math.pi * (tod - 9) / 24) + day_offset
         work = 9 <= tod < 17
 
-        sunrise, sunset = 5.3, 20.5
-        solar_available = 0.0
-        if sunrise <= tod <= sunset:
-            phase = math.pi * (tod - sunrise) / (sunset - sunrise)
-            shape = max(math.sin(phase), 0) ** 1.55
-            day_factor = 1.0 if h < 24 else (1.08 if h < 48 else 0.88)
-            solar_available = min(solar_w, solar_w * 0.56 * shape * day_factor)
-
-        wind_raw = (45
-                    + 25 * math.sin(2 * math.pi * (h - 1) / 24)
-                    + 18 * math.sin(2 * math.pi * (h + 2) / 8)
-                    + 12 * math.sin(2 * math.pi * h / 36))
-        if 13.5 <= tod <= 18.0:
-            wind_raw *= 0.25
-        wind_factor = 1.0 if h < 24 else (1.25 if h < 48 else 0.75)
-        wind_available = clamp(wind_raw * wind_factor * (wind_w / 500), 0, wind_w)
+        if weather is not None:
+            outdoor_temp    = weather["temp"][s] * 9 / 5 + 32
+            irr             = max(weather["solar"][s], 0.0)
+            solar_available = min(solar_w, solar_w * (irr / 1000) * 0.80)
+            v_ms            = max(weather["wind"][s], 0.0)
+            if v_ms < 3 or v_ms > 25:
+                wind_available = 0.0
+            else:
+                wind_available = wind_w * min((v_ms - 3) / 9.0, 1.0) ** 3
+        else:
+            day_offset   = 0 if h < 24 else (2 if h < 48 else -1)
+            outdoor_temp = 71 + 11 * math.sin(2 * math.pi * (tod - 9) / 24) + day_offset
+            sunrise, sunset = 5.3, 20.5
+            solar_available = 0.0
+            if sunrise <= tod <= sunset:
+                phase = math.pi * (tod - sunrise) / (sunset - sunrise)
+                shape = max(math.sin(phase), 0) ** 1.55
+                day_factor = 1.0 if h < 24 else (1.08 if h < 48 else 0.88)
+                solar_available = min(solar_w, solar_w * 0.56 * shape * day_factor)
+            wind_raw = (45
+                        + 25 * math.sin(2 * math.pi * (h - 1) / 24)
+                        + 18 * math.sin(2 * math.pi * (h + 2) / 8)
+                        + 12 * math.sin(2 * math.pi * h / 36))
+            if 13.5 <= tod <= 18.0:
+                wind_raw *= 0.25
+            wind_factor    = 1.0 if h < 24 else (1.25 if h < 48 else 0.75)
+            wind_available = clamp(wind_raw * wind_factor * (wind_w / 500), 0, wind_w)
 
         load_no_ac = starlink_w + (laptop_w + monitor_w if work else 10)
 
@@ -183,6 +259,11 @@ def run_simulation(starlink_w, laptop_w, monitor_w, ac_w, battery_kwh,
 
 # ── Streamlit UI ──────────────────────────────────────────────────────────────
 
+MONTH_NAMES = [
+    "January","February","March","April","May","June",
+    "July","August","September","October","November","December",
+]
+
 st.set_page_config(page_title="Hybrid Power Sizing Tool", layout="wide")
 
 st.markdown("""
@@ -269,6 +350,21 @@ def _ps(slug):
 with st.sidebar:
     st.title("Configure your system")
 
+    st.subheader("Location & season")
+    loc_input = st.text_input("Address or city", value="La Crosse, WI", key="loc_input")
+    sel_month = st.selectbox("Month", MONTH_NAMES, index=4, key="sel_month")
+    month_num = MONTH_NAMES.index(sel_month) + 1
+    today     = date.today()
+    data_year = today.year if month_num < today.month else today.year - 1
+
+    lat, lng, display_name = geocode_address(loc_input)
+    weather = fetch_weather_profile(lat, lng, data_year, month_num)
+    if weather is None:
+        st.warning("Weather data unavailable — using built-in estimates.")
+    else:
+        st.caption(f"\U0001f4cd {display_name.split(',')[0]} · {sel_month} {data_year}")
+
+    st.divider()
     st.subheader("Your loads")
     starlink_w  = _ps("starlink_mini_constant_load")
     laptop_w    = _ps("laptop_workday_load")
@@ -296,6 +392,7 @@ rows, summary, baseline_fuel_gal = run_simulation(
     battery_kwh, solar_w, wind_w,
     gen_pct, gen_target, initial_soc,
     gen_rated_w,
+    weather=weather,
 )
 
 fuel_saved  = round(baseline_fuel_gal - summary["Est. fuel gal"], 2)
