@@ -47,6 +47,16 @@ LATEX = {
     "generator_recharge_target":   "\\text{gen\\_target}",
 }
 
+# Seed cfg_ storage once per session — page 1 reads these for cross-page sync
+for _s, _, _, _lo, _hi, _def, _step, _, _ in PARAMS:
+    _c = float if isinstance(_step, float) else int
+    if f"cfg_{_s}_min" not in st.session_state:
+        st.session_state[f"cfg_{_s}_min"] = _c(_lo)
+    if f"cfg_{_s}_max" not in st.session_state:
+        st.session_state[f"cfg_{_s}_max"] = _c(_hi)
+    if f"cfg_{_s}_val" not in st.session_state:
+        st.session_state[f"cfg_{_s}_val"] = _c(_def)
+
 for slug, _, label_p2, lo, hi, default, step, unit, desc in PARAMS:
     is_float = isinstance(step, float)
     cast = float if is_float else int
@@ -63,33 +73,43 @@ for slug, _, label_p2, lo, hi, default, step, unit, desc in PARAMS:
         with rc1:
             range_min = st.number_input(
                 f"Range minimum ({unit})",
-                value=cast(st.session_state.get(f"ref_{slug}_min", lo)),
+                value=st.session_state[f"cfg_{slug}_min"],
                 step=step,
-                key=f"ref_{slug}_min",
+                key=f"eq_{slug}_min",
             )
         with rc2:
             range_max = st.number_input(
                 f"Range maximum ({unit})",
-                value=cast(st.session_state.get(f"ref_{slug}_max", hi)),
+                value=st.session_state[f"cfg_{slug}_max"],
                 step=step,
-                key=f"ref_{slug}_max",
+                key=f"eq_{slug}_max",
             )
+        # Write number_input results back to cfg_ storage
+        st.session_state[f"cfg_{slug}_min"] = cast(range_min)
+        st.session_state[f"cfg_{slug}_max"] = cast(range_max)
 
         if range_min >= range_max:
             st.warning("Minimum must be less than maximum.")
         else:
-            # clamp stored value into current bounds
-            current = cast(st.session_state.get(f"ref_{slug}_val", default))
-            clamped = cast(max(range_min, min(range_max, current)))
-            if clamped != current:
-                st.session_state[f"ref_{slug}_val"] = clamped
+            # Ensure eq_ slider key is initialised and within current bounds
+            eq_key = f"eq_{slug}_val"
+            if eq_key not in st.session_state:
+                st.session_state[eq_key] = cast(
+                    max(range_min, min(range_max, st.session_state[f"cfg_{slug}_val"]))
+                )
+            elif not (range_min <= st.session_state[eq_key] <= range_max):
+                st.session_state[eq_key] = cast(
+                    max(range_min, min(range_max, st.session_state[eq_key]))
+                )
             val = st.slider(
                 f"{label_p2} ({unit})",
                 min_value=range_min,
                 max_value=range_max,
                 step=step,
-                key=f"ref_{slug}_val",
+                key=eq_key,
             )
+            # Write slider result back to cfg_ storage so page 1 sees it
+            st.session_state[f"cfg_{slug}_val"] = cast(val)
             st.caption(
                 f"Current: **{val} {unit}**  |  Default: {default} {unit}  |  "
                 f"Range: {range_min}–{range_max} {unit}  |  "

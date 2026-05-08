@@ -242,9 +242,9 @@ def _param_slider(label_p1, slug, lo_def, hi_def, default_def, step):
     is_float = isinstance(step, float)
     cast = float if is_float else int
     # Read bounds/value set by page 2; fall back to config defaults
-    lo      = cast(st.session_state.get(f"ref_{slug}_min", lo_def))
-    hi      = cast(st.session_state.get(f"ref_{slug}_max", hi_def))
-    default = cast(st.session_state.get(f"ref_{slug}_val", default_def))
+    lo      = cast(st.session_state.get(f"cfg_{slug}_min", lo_def))
+    hi      = cast(st.session_state.get(f"cfg_{slug}_max", hi_def))
+    default = cast(st.session_state.get(f"cfg_{slug}_val", default_def))
     # First visit: seed page-1's own key
     if f"p1_{slug}" not in st.session_state:
         st.session_state[f"p1_{slug}"]         = cast(max(lo, min(hi, default)))
