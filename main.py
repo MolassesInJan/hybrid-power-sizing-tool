@@ -469,9 +469,11 @@ st.caption(
     f"({baseline_fuel_gal} gal × ${fuel_cost_per_gal:.2f} = **${baseline_cost:.2f}** baseline cost)."
 )
 
+avg_load_w = round(summary["Total load kWh"] * 1000 / HOURS)
+
 with st.container():
     st.markdown('<div class="savings-row">', unsafe_allow_html=True)
-    h1, h2, h3 = st.columns(3)
+    h1, h2, h3, h4 = st.columns(4)
     h1.metric("Fuel saved",  f"{fuel_saved} gal",
               delta=f"{pct_saved}% less than generator-only", delta_color="normal")
     h2.metric("Money saved", f"${money_saved:,.2f}",
@@ -479,6 +481,8 @@ with st.container():
     h3.metric("Generator ran", f"{summary['Gen runtime h']} hrs",
               delta=f"{round(72 - summary['Gen runtime h'], 1)} hrs off — saving fuel",
               delta_color="normal")
+    h4.metric("Avg total load", f"{avg_load_w} W",
+              delta="average over 72 hrs", delta_color="off")
     st.markdown('</div>', unsafe_allow_html=True)
 
 st.divider()
